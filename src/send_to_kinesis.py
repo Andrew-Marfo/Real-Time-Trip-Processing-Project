@@ -1,6 +1,12 @@
 import pandas as pd
 import boto3
 import json
+import os
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+region = os.getenv('AWS_REGION')
 
 # Initialize Kinesis client
 try:
