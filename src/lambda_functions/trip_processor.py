@@ -1,5 +1,10 @@
 import json
 import boto3
+import logging
+
+# Set up logging
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
 
 # Initialize AWS clients
 dynamodb = boto3.resource('dynamodb')
@@ -34,7 +39,7 @@ def lambda_handler(event, context):
             # Check if trip start exists in DynamoDB
             response = table.get_item(Key={'trip_id': trip_id})
             if 'Item' not in response:
-                print(f"Trip start not found for trip_id: {trip_id}")
+                logger.warning(f"Trip start not found for trip_id: {trip_id}")
                 continue
             
             # Update the existing record with trip end data
@@ -54,7 +59,7 @@ def lambda_handler(event, context):
             table.put_item(Item=trip_data)
             
             # Log the completed trip
-            print(f"Trip {trip_id} completed: {trip_data}")
+            logger.info(f"Trip {trip_id} completed: {trip_data}")
     
     return {
         'statusCode': 200,
