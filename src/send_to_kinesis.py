@@ -44,7 +44,7 @@ print("Sending trip start records...")
 send_to_kinesis('TripStartStream', trip_start_df)
 
 # Send trip end records
-# print("Sending trip end records...")
-# send_to_kinesis('TripEndStream', trip_end_df)
+print("Sending trip end records...")
+send_to_kinesis('TripEndStream', trip_end_df)
 
 print("Finished sending records to Kinesis streams.")
