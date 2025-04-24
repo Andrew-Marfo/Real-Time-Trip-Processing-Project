@@ -17,8 +17,8 @@ except Exception as e:
     exit(1)
 
 # File paths for trip start and end data
-trip_start_path = "../data/trip_start.csv" 
-trip_end_path = "../data/trip_end.csv"
+trip_start_path = "data/trip_start.csv" 
+trip_end_path = "data/trip_end.csv"
 
 # Read the first 10 records from each CSV file
 try:
@@ -64,7 +64,7 @@ send_to_kinesis('TripStartStream', trip_start_df)
 
 # Add a 5-second delay
 print("Waiting for 5 seconds before sending trip end records...")
-time.sleep(5)
+time.sleep(10)
 
 # Send trip end records
 print("Sending trip end records...")
