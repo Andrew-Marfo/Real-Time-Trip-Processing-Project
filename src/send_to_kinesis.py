@@ -3,6 +3,7 @@ import boto3
 import json
 import os
 from dotenv import load_dotenv
+import time
 
 # Load environment variables
 load_dotenv()
@@ -10,14 +11,14 @@ region = os.getenv('AWS_REGION')
 
 # Initialize Kinesis client
 try:
-    kinesis_client = boto3.client('kinesis', region_name='us-east-1')  # Replace with your AWS region
+    kinesis_client = boto3.client('kinesis', region_name=region)
 except Exception as e:
     print(f"Error initializing Kinesis client: {e}")
     exit(1)
 
-# File paths for your local data (use absolute paths)
-trip_start_path = "../data/trip_start.csv"  # Replace with your actual path
-trip_end_path = "../data/trip_end.csv"  # Replace with your actual path
+# File paths for trip start and end data
+trip_start_path = "../data/trip_start.csv" 
+trip_end_path = "../data/trip_end.csv"
 
 # Read the first 10 records from each CSV file
 try:
@@ -60,6 +61,10 @@ def send_to_kinesis(stream_name, records):
 # Send trip start records
 print("Sending trip start records...")
 send_to_kinesis('TripStartStream', trip_start_df)
+
+# Add a 5-second delay
+print("Waiting for 5 seconds before sending trip end records...")
+time.sleep(5)
 
 # Send trip end records
 print("Sending trip end records...")
