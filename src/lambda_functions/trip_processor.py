@@ -1,6 +1,5 @@
 import json
 import boto3
-import base64
 
 # Initialize AWS clients
 dynamodb = boto3.resource('dynamodb')
@@ -8,8 +7,8 @@ table = dynamodb.Table('TripData')
 
 def lambda_handler(event, context):
     for record in event['Records']:
-        # Decode Kinesis record
-        payload = base64.b64decode(record['kinesis']['data'])
+        # Decode Kinesis record (raw JSON data, no base64 decoding needed)
+        payload = record['kinesis']['data']
         data = json.loads(payload)
         
         trip_id = data['trip_id']
@@ -54,7 +53,7 @@ def lambda_handler(event, context):
             # Store updated record in DynamoDB
             table.put_item(Item=trip_data)
             
-            # Trigger downstream processing (e.g., publish to another Kinesis stream for aggregation)
+            # Log the completed trip
             print(f"Trip {trip_id} completed: {trip_data}")
     
     return {
