@@ -1,13 +1,14 @@
 import sys
 import boto3
 import logging
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from decimal import Decimal
 from awsglue.utils import getResolvedOptions
 from pyspark.context import SparkContext
 from awsglue.context import GlueContext
 from awsglue.job import Job
 from pyspark.sql.functions import col, sum, count, avg, max, min, to_date
+import json
 
 # Configure logging
 logging.basicConfig()
@@ -29,32 +30,51 @@ output_s3_path = args['OUTPUT_S3_PATH']
 dynamodb = boto3.resource('dynamodb')
 s3_client = boto3.client('s3')
 
-def fetch_data_from_dynamodb():
-    """Fetch completed trip data from DynamoDB"""
+def get_previous_day():
+    """Get the previous day's date in YYYY-MM-DD format"""
+    previous_day = datetime.now() - timedelta(days=1)
+    return previous_day.strftime("%Y-%m-%d")
+
+def fetch_data_for_date(target_date):
+    """Fetch completed trip data from DynamoDB for a specific date"""
     try:
-        logger.info(f"Fetching data from DynamoDB table: {dynamodb_table}")
+        logger.info(f"Fetching data for date: {target_date}")
         table = dynamodb.Table(dynamodb_table)
         
-        # Scan DynamoDB for completed trips (status = 'Completed')
-        response = table.scan(
+        # Query DynamoDB for items matching the date and status
+        response = table.query(
+            KeyConditionExpression='#date = :date_val',
             FilterExpression='#status = :status_val',
-            ExpressionAttributeNames={'#status': 'status'},
-            ExpressionAttributeValues={':status_val': 'Completed'}
+            ExpressionAttributeNames={
+                '#date': 'date',
+                '#status': 'status'
+            },
+            ExpressionAttributeValues={
+                ':date_val': target_date,
+                ':status_val': 'Completed'
+            }
         )
         
         items = response['Items']
         
         # Handle pagination if results are large
         while 'LastEvaluatedKey' in response:
-            response = table.scan(
+            response = table.query(
                 ExclusiveStartKey=response['LastEvaluatedKey'],
+                KeyConditionExpression='#date = :date_val',
                 FilterExpression='#status = :status_val',
-                ExpressionAttributeNames={'#status': 'status'},
-                ExpressionAttributeValues={':status_val': 'Completed'}
+                ExpressionAttributeNames={
+                    '#date': 'date',
+                    '#status': 'status'
+                },
+                ExpressionAttributeValues={
+                    ':date_val': target_date,
+                    ':status_val': 'Completed'
+                }
             )
             items.extend(response['Items'])
         
-        logger.info(f"Fetched {len(items)} completed trips from DynamoDB")
+        logger.info(f"Fetched {len(items)} completed trips for {target_date}")
         return items
         
     except Exception as e:
@@ -62,7 +82,7 @@ def fetch_data_from_dynamodb():
         raise
 
 def transform_data(items):
-    """Transform DynamoDB items into Spark DataFrame and compute KPIs"""
+    """Transform DynamoDB items into Spark DataFrame"""
     try:
         logger.info("Starting data transformation")
         
@@ -75,9 +95,6 @@ def transform_data(items):
             if col_name in df.columns:
                 df = df.withColumn(col_name, col(col_name).cast('float'))
         
-        # Extract date from pickup_datetime
-        df = df.withColumn('trip_date', to_date(col('pickup_datetime')))
-        
         logger.info("Data successfully loaded into Spark DataFrame")
         return df
         
@@ -85,38 +102,59 @@ def transform_data(items):
         logger.error(f"Error transforming data: {str(e)}")
         raise
 
-def compute_kpis(df):
-    """Compute daily KPIs from trip data"""
+def compute_kpis(df, target_date):
+    """Compute KPIs from trip data and format output"""
     try:
-        logger.info("Computing daily KPIs")
+        logger.info("Computing KPIs")
         
-        # Group by date and compute metrics
-        kpis = df.groupBy('trip_date').agg(
-            sum('fare_amount').alias('total_fare'),
-            count('trip_id').alias('count_trips'),
-            avg('fare_amount').alias('average_fare'),
-            max('fare_amount').alias('max_fare'),
-            min('fare_amount').alias('min_fare')
-        ).orderBy('trip_date')
+        # Compute metrics (since we're already filtering by date, no need to group)
+        metrics = {
+            "trip_date": target_date,
+            "total_fare": float(df.agg(sum('fare_amount')).collect()[0][0]),
+            "count_trips": df.count(),
+            "average_fare": float(df.agg(avg('fare_amount')).collect()[0][0]),
+            "max_fare": float(df.agg(max('fare_amount')).collect()[0][0]),
+            "min_fare": float(df.agg(min('fare_amount')).collect()[0][0])
+        }
+        
+        # Create final output structure
+        output = {
+            "date": target_date,
+            "metrics": metrics,
+            "timestamp": datetime.now().isoformat()
+        }
         
         logger.info("Successfully computed KPIs")
-        return kpis
+        return output
         
     except Exception as e:
         logger.error(f"Error computing KPIs: {str(e)}")
         raise
 
-def write_to_s3(kpis_df):
+def write_to_s3(output_data, target_date):
     """Write KPIs to S3 in JSON format"""
     try:
-        # Get current timestamp for file naming
-        date = datetime.now().strftime("%Y_%m_%d")
-        output_path = f"{output_s3_path}/{date}.json"
+        year_month = target_date[:7]
+        output_path = f"{output_s3_path}{year_month}/{target_date}.json"
+        json_data = json.dumps(output_data, indent=2)
         
         logger.info(f"Writing KPIs to S3: {output_path}")
         
-        # Write as single JSON file (coalesce to 1 partition)
-        kpis_df.coalesce(1).write.mode('overwrite').json(output_path)
+        # Extract bucket and key from S3 path
+        if output_s3_path.startswith('s3://'):
+            parts = output_s3_path[5:].split('/', 1)
+            bucket = parts[0]
+            prefix = parts[1] if len(parts) > 1 else ''
+            key = f"{prefix}{year_month}/{target_date}.json" if prefix else f"{year_month}/{target_date}.json"
+        else:
+            raise ValueError("Invalid S3 path format. Must start with 's3://'")
+        
+        # Write directly as JSON file
+        s3_client.put_object(
+            Bucket=bucket,
+            Key=key,
+            Body=json_data
+        )
         
         logger.info("Successfully wrote KPIs to S3")
         
@@ -131,11 +169,20 @@ def main():
         # Initialize job
         job.init(args['JOB_NAME'], args)
         
+        # Get target date (using hardcoded test date for now)
+        target_date = "2024-05-25"  # For testing
+        # In production, use: target_date = get_previous_day()
+        
         # ETL Pipeline
-        items = fetch_data_from_dynamodb()
+        items = fetch_data_for_date(target_date)
+        if not items:
+            logger.info(f"No completed trips found for {target_date}")
+            job.commit()
+            return
+            
         df = transform_data(items)
-        kpis_df = compute_kpis(df)
-        write_to_s3(kpis_df)
+        output_data = compute_kpis(df, target_date)
+        write_to_s3(output_data, target_date)
         
         logger.info("Glue job completed successfully")
         job.commit()
