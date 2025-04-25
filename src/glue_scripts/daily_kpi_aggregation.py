@@ -110,8 +110,8 @@ def write_to_s3(kpis_df):
     """Write KPIs to S3 in JSON format"""
     try:
         # Get current timestamp for file naming
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_path = f"{output_s3_path}/daily_kpis_{timestamp}.json"
+        date = datetime.now().strftime("%Y_%m_%d")
+        output_path = f"{output_s3_path}/{date}.json"
         
         logger.info(f"Writing KPIs to S3: {output_path}")
         
