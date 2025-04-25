@@ -20,10 +20,10 @@ except Exception as e:
 trip_start_path = "data/trip_start.csv" 
 trip_end_path = "data/trip_end.csv"
 
-# Read the first 10 records from each CSV file
+# Read all records from each CSV file
 try:
     print("Reading trip start data...")
-    trip_start_df = pd.read_csv(trip_start_path).head(10)
+    trip_start_df = pd.read_csv(trip_start_path)
     print(f"Successfully read {len(trip_start_df)} trip start records.")
 except Exception as e:
     print(f"Error reading trip_start.csv: {e}")
@@ -31,7 +31,7 @@ except Exception as e:
 
 try:
     print("Reading trip end data...")
-    trip_end_df = pd.read_csv(trip_end_path).head(10)
+    trip_end_df = pd.read_csv(trip_end_path)
     print(f"Successfully read {len(trip_end_df)} trip end records.")
 except Exception as e:
     print(f"Error reading trip_end.csv: {e}")
@@ -39,35 +39,43 @@ except Exception as e:
 
 # Function to send data to Kinesis
 def send_to_kinesis(stream_name, records):
+    sent_count = 0
     for _, row in records.iterrows():
         try:
             # Convert the row to a dictionary and then to JSON
             record = row.to_dict()
             record_json = json.dumps(record)
             
-            # Send the JSON string as raw bytes (no base64 encoding)
+            # Send the JSON string as raw bytes
             record_bytes = record_json.encode('utf-8')
             
             # Send to Kinesis
             response = kinesis_client.put_record(
                 StreamName=stream_name,
                 Data=record_bytes,
-                PartitionKey=record['trip_id']
+                PartitionKey=str(record['trip_id'])  # Ensure trip_id is string
             )
-            print(f"Sent record to {stream_name}: {record['trip_id']} - ShardId: {response['ShardId']}")
+            sent_count += 1
+            
+            # Print progress every 100 records
+            if sent_count % 100 == 0:
+                print(f"Sent {sent_count} records to {stream_name}")
+                
         except Exception as e:
-            print(f"Error sending record to {stream_name} for trip_id {record['trip_id']}: {e}")
+            print(f"Error sending record to {stream_name} for trip_id {record.get('trip_id', 'UNKNOWN')}: {e}")
+    
+    print(f"Finished sending {sent_count} records to {stream_name}")
 
 # Send trip start records
-print("Sending trip start records...")
+print("\nSending trip start records...")
 send_to_kinesis('TripStartStream', trip_start_df)
 
-# Add a 5-second delay
-print("Waiting for 5 seconds before sending trip end records...")
-time.sleep(10)
+# Add a 5-minute delay
+print("\nWaiting for 5 minutes before sending trip end records...")
+time.sleep(300)
 
 # Send trip end records
-print("Sending trip end records...")
+print("\nSending trip end records...")
 send_to_kinesis('TripEndStream', trip_end_df)
 
-print("Finished sending records to Kinesis streams.")
+print("\nFinished sending all records to Kinesis streams.")
