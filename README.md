@@ -31,7 +31,7 @@ The pipeline consists of the following components and flow:
    - The `TripProcessor` Lambda function (`trip_processor.py`) is triggered by both Kinesis streams.
    - It processes each record as follows:
      - For `TripStartStream` events:
-       - Extracts fields like `trip_id`, `pickup_location_id`, `dropoff_location_id`, `vendor_id`, `pickup_datetime`, `estimated_dropoff_datetime`, and `estimated_fare_amount`.
+       - Extracts fields like `trip_id`, `pickup_location_id`, `dropoff_location_id`, `vendor_id`, `pickup_datetime`, `estimated_dropoff_datetime`, `estimated_fare_amount` and `date` from `pickup_datetime`.
        - Stores the data in the `TripData` DynamoDB table with `status: "Started"`.
      - For `TripEndStream` events:
        - Looks up the corresponding trip start record in DynamoDB using `trip_id`.
@@ -41,7 +41,8 @@ The pipeline consists of the following components and flow:
 
 4. **DynamoDB Storage**:
    - The `TripData` DynamoDB table stores the processed trip data.
-   - The table uses `trip_id` (String) as the partition key.
+   - The table uses `date` (Extracted from `pickup_datetime`) as the partition key
+   - The table uses `trip_id` (String) as the sort key.
    - Each record contains fields like `pickup_datetime`, `estimated_fare_amount`, `dropoff_datetime`, `fare_amount`, and `status`.
 
 5. **Daily KPI Aggregation**:
@@ -65,15 +66,16 @@ Follow these steps to set up and run the project:
 1. **Create Kinesis Data Streams**:
    - Go to **AWS Console > Kinesis > Data Streams**.
    - Create two streams:
-     - Name: `TripStartStream`, Shards: 1.
-     - Name: `TripEndStream`, Shards: 1.
+     - Name: `TripStartStream`, Shards: 4.
+     - Name: `TripEndStream`, Shards: 4.
    - Wait for both streams to become "Active".
 
 2. **Create the DynamoDB Table**:
    - Go to **AWS Console > DynamoDB > Tables**.
    - Create a table:
      - Name: `TripData`.
-     - Partition key: `trip_id` (String).
+     - Partition key: `date`(String).
+     - Sort key: `trip_id` (String).
      - Use default settings (on-demand capacity).
    - Click **Create table**.
 
@@ -104,7 +106,7 @@ Follow these steps to set up and run the project:
      - Name: `DailyKPIAggregation`.
      - Upload the script from `src/glue_scripts/daily_kpi_aggregation.py`.
      - Configure the job to read from the `TripData` DynamoDB table and write to an S3 bucket (as per your implementation).
-     - Schedule the job to run daily at the end of the day (e.g., 23:59 UTC).
+     - Schedule the job to run daily at the end of the day (e.g., 00:00 UTC).
      - Add s3 bucket name and DynamoDB table name to the **JOB PARAMETERS**.
    - Ensure the Glue job role has permissions for:
      - DynamoDB: `dynamodb:Scan`.
